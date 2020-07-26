@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("QO100LongmyndClient")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("M0MUX")]
 [assembly: AssemblyProduct("QO100LongmyndClient")]
-[assembly: AssemblyCopyright("Copyright ©  2020")]
+[assembly: AssemblyCopyright("Copyright ©  2020 M0MUX")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
