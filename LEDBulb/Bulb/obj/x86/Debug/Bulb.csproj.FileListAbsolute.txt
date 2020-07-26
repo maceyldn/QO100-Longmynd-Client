@@ -1,0 +1,9 @@
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\bin\Debug\Bulb.exe
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\bin\Debug\Bulb.pdb
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.csprojAssemblyReference.cache
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.Form1.resources
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.Properties.Resources.resources
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.csproj.GenerateResource.cache
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.csproj.CoreCompileInputs.cache
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.exe
+C:\code\LongMyndStatusReader\LEDBulb\Bulb\obj\x86\Debug\Bulb.pdb
