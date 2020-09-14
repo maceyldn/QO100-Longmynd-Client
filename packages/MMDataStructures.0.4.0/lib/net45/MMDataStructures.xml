@@ -1,0 +1,397 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MMDataStructures</name>
+    </assembly>
+    <members>
+        <member name="M:MMDataStructures.ByteArrayCompare.UnSafeEquals(System.Byte[],System.Byte[])">
+            <summary>
+            Compare the values of two byte arrays
+            </summary>
+            <param name="arr1"></param>
+            <param name="arr2"></param>
+            <returns></returns>
+        </member>
+        <member name="P:MMDataStructures.Config.DataPath">
+            <summary>
+            Path where data files are stored
+            </summary>
+        </member>
+        <member name="T:MMDataStructures.DictionaryBacking.BackingUnknownSize`2">
+            <summary>
+            Persist a Dictionary on disk. One file for hashes, one for keys and one for values.
+            Keys and values can be of variable sizes.
+            </summary>
+            <typeparam name="TKey"></typeparam>
+            <typeparam name="TValue"></typeparam>
+        </member>
+        <member name="M:MMDataStructures.DictionaryBacking.BackingUnknownSize`2.#ctor(System.String,System.Int32,MMDataStructures.PersistenceMode)">
+            <summary>
+            
+            </summary>
+            <param name="name">Name of the dictionary and its backing file</param>
+            <param name="capacity">Number of buckets for the hash</param>
+            <param name="persistenceMode"></param>
+        </member>
+        <member name="M:MMDataStructures.DictionaryBacking.BackingUnknownSize`2.GetEnumerator">
+            <summary>
+            Enumerate over the dictionary
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:MMDataStructures.DictionaryBacking.BackingUnknownSize`2.System#Collections#IEnumerable#GetEnumerator">
+            <summary>
+            Enumerate over the dictionary
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:MMDataStructures.DictionaryBacking.HashHelpers.GetNextPrime(System.Int32)">
+            <summary>
+            Get the next prime number above the passed value
+            </summary>
+            <param name="min"></param>
+            <returns></returns>
+        </member>
+        <member name="T:MMDataStructures.Mutex">
+            <summary>
+            Named mutex
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.Mutex.#ctor(System.String)">
+            <summary>
+            Creates or gets named mutex that is not initially owned
+            </summary>
+            <param name="name"></param>
+        </member>
+        <member name="M:MMDataStructures.Mutex.WaitOne">
+            <summary>
+            Blocks the current thread until the current WaitHandle receives a signal. (Inherited from WaitHandle.)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:MMDataStructures.Mutex.WaitOne(System.Int32)">
+            <summary>
+            Blocks the current thread until the current WaitHandle receives a signal, using a 32-bit signed integer to specify the time interval.
+            </summary>
+            <param name="millisecondsTimeout">The number of milliseconds to wait, or Timeout.Infinite (-1) to wait indefinitely. If millisecondsTimeout is zero, the method does not block. It tests the state of the wait handle and returns immediately.</param>
+            <returns>true if the current instance receives a signal; otherwise, false.</returns>
+        </member>
+        <member name="M:MMDataStructures.Mutex.ReleaseMutex">
+            <summary>
+            Releases the Mutex once.
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.Mutex.Dispose">
+            <summary>
+            Dispose mutex if it was created by us
+            </summary>
+        </member>
+        <member name="P:MMDataStructures.Mutex.Created">
+            <summary>
+            Mutex was created in this constructor
+            </summary>
+        </member>
+        <member name="T:MMDataStructures.PersistenceMode">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="F:MMDataStructures.PersistenceMode.Persist">
+            <summary>
+            Store file on disk
+            </summary>
+        </member>
+        <member name="F:MMDataStructures.PersistenceMode.TemporaryPersist">
+            <summary>
+            Store file on disk while process is running
+            </summary>
+        </member>
+        <member name="F:MMDataStructures.PersistenceMode.Ephemeral">
+            <summary>
+            In-memory file for IPC
+            </summary>
+        </member>
+        <member name="T:MMDataStructures.DefaultSerializer">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.DefaultSerializer.Serialize``1(``0)">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.DefaultSerializer.Deserialize``1(System.Byte[])">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.DefaultSerializer.DeepClone``1(``0)">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="T:MMDataStructures.CommonExtentions">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.CommonExtentions.GZip(System.Byte[])">
+            <summary>
+            In-memory compress
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.CommonExtentions.UnGZip(System.Byte[])">
+            <summary>
+            In-memory uncompress
+            </summary>
+        </member>
+        <member name="T:MMDataStructures.Dictionary`2">
+            <summary>
+            Disk based Dictionary to reduce the amount of RAM used for larger dictionaries.
+            The maximum datasize for the dictionary is 2^32 bytes.
+            </summary>
+            <typeparam name="TKey"></typeparam>
+            <typeparam name="TValue"></typeparam>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.#ctor(System.String,System.Int32,MMDataStructures.PersistenceMode)">
+            <summary>
+            Initialize a new dictionary.
+            </summary>
+            <param name="fileName">Folder to store files in</param>
+            <param name="capacity">Number of buckets for the hash</param>
+            <param name="persistenceMode"></param>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.ContainsKey(`0)">
+            <summary>
+            Determines whether the <see cref="T:System.Collections.Generic.IDictionary`2"></see> contains an element with the specified key.
+            </summary>
+            
+            <returns>
+            true if the <see cref="T:System.Collections.Generic.IDictionary`2"></see> contains an element with the key; otherwise, false.
+            </returns>
+            
+            <param name="key">The key to locate in the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.</param>
+            <exception cref="T:System.ArgumentNullException">key is null.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Add(`0,`1)">
+            <summary>
+            Adds an element with the provided key and value to the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </summary>
+            
+            <param name="value">The object to use as the value of the element to add.</param>
+            <param name="key">The object to use as the key of the element to add.</param>
+            <exception cref="T:System.NotSupportedException">The <see cref="T:System.Collections.Generic.IDictionary`2"></see> is read-only.</exception>
+            <exception cref="T:System.ArgumentException">An element with the same key already exists in the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.</exception>
+            <exception cref="T:System.ArgumentNullException">key is null.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Remove(`0)">
+            <summary>
+            Removes the element with the specified key from the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </summary>
+            
+            <returns>
+            true if the element is successfully removed; otherwise, false.  This method also returns false if key was not found in the original <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </returns>
+            
+            <param name="key">The key of the element to remove.</param>
+            <exception cref="T:System.NotSupportedException">The <see cref="T:System.Collections.Generic.IDictionary`2"></see> is read-only.</exception>
+            <exception cref="T:System.ArgumentNullException">key is null.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Add(System.Collections.Generic.KeyValuePair{`0,`1})">
+            <summary>
+            Adds an item to the <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </summary>
+            
+            <param name="item">The object to add to the <see cref="T:System.Collections.Generic.ICollection`1"></see>.</param>
+            <exception cref="T:System.NotSupportedException">The <see cref="T:System.Collections.Generic.ICollection`1"></see> is read-only.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Clear">
+            <summary>
+            Removes all items from the <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </summary>
+            
+            <exception cref="T:System.NotSupportedException">The <see cref="T:System.Collections.Generic.ICollection`1"></see> is read-only. </exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Contains(System.Collections.Generic.KeyValuePair{`0,`1})">
+            <summary>
+            Determines whether the <see cref="T:System.Collections.Generic.ICollection`1"></see> contains a specific value.
+            </summary>
+            
+            <returns>
+            true if item is found in the <see cref="T:System.Collections.Generic.ICollection`1"></see>; otherwise, false.
+            </returns>
+            
+            <param name="item">The object to locate in the <see cref="T:System.Collections.Generic.ICollection`1"></see>.</param>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.CopyTo(System.Collections.Generic.KeyValuePair{`0,`1}[],System.Int32)">
+            <summary>
+            Copies the elements of the <see cref="T:System.Collections.Generic.ICollection`1"></see> to an <see cref="T:System.Array"></see>, starting at a particular <see cref="T:System.Array"></see> index.
+            </summary>
+            
+            <param name="array">The one-dimensional <see cref="T:System.Array"></see> that is the destination of the elements copied from <see cref="T:System.Collections.Generic.ICollection`1"></see>. The <see cref="T:System.Array"></see> must have zero-based indexing.</param>
+            <param name="index">The zero-based index in array at which copying begins.</param>
+            <exception cref="T:System.ArgumentOutOfRangeException">arrayIndex is less than 0.</exception>
+            <exception cref="T:System.ArgumentNullException">array is null.</exception>
+            <exception cref="T:System.ArgumentException">array is multidimensional.-or-arrayIndex is equal to or greater than the length of array.-or-The number of elements in the source <see cref="T:System.Collections.Generic.ICollection`1"></see> is greater than the available space from arrayIndex to the end of the destination array.-or-Type T cannot be cast automatically to the type of the destination array.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.Remove(System.Collections.Generic.KeyValuePair{`0,`1})">
+            <summary>
+            Removes the first occurrence of a specific object from the <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </summary>
+            
+            <returns>
+            true if item was successfully removed from the <see cref="T:System.Collections.Generic.ICollection`1"></see>; otherwise, false. This method also returns false if item is not found in the original <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </returns>
+            
+            <param name="item">The object to remove from the <see cref="T:System.Collections.Generic.ICollection`1"></see>.</param>
+            <exception cref="T:System.NotSupportedException">The <see cref="T:System.Collections.Generic.ICollection`1"></see> is read-only.</exception>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.GetEnumerator">
+            <summary>
+            Returns an enumerator that iterates through the collection.
+            </summary>
+            
+            <returns>
+            A <see cref="T:System.Collections.Generic.IEnumerator`1"></see> that can be used to iterate through the collection.
+            </returns>
+            <filterpriority>1</filterpriority>
+        </member>
+        <member name="M:MMDataStructures.Dictionary`2.System#Collections#IEnumerable#GetEnumerator">
+            <summary>
+            Returns an enumerator that iterates through a collection.
+            </summary>
+            
+            <returns>
+            An <see cref="T:System.Collections.IEnumerator"></see> object that can be used to iterate through the collection.
+            </returns>
+            <filterpriority>2</filterpriority>
+        </member>
+        <member name="P:MMDataStructures.Dictionary`2.Item(`0)">
+            <summary>
+            Gets or sets the element with the specified key.
+            </summary>
+            
+            <returns>
+            The element with the specified key.
+            </returns>
+            
+            <param name="key">The key of the element to get or set.</param>
+            <exception cref="T:System.NotSupportedException">The property is set and the <see cref="T:System.Collections.Generic.IDictionary`2"></see> is read-only.</exception>
+            <exception cref="T:System.ArgumentNullException">key is null.</exception>
+            <exception cref="T:System.Collections.Generic.KeyNotFoundException">The property is retrieved and key is not found.</exception>
+        </member>
+        <member name="P:MMDataStructures.Dictionary`2.Keys">
+            <summary>
+            Gets an <see cref="T:System.Collections.Generic.ICollection`1"></see> containing the keys of the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </summary>
+            
+            <returns>
+            An <see cref="T:System.Collections.Generic.ICollection`1"></see> containing the keys of the object that implements <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </returns>
+            
+        </member>
+        <member name="P:MMDataStructures.Dictionary`2.Values">
+            <summary>
+            Gets an <see cref="T:System.Collections.Generic.ICollection`1"></see> containing the values in the <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </summary>
+            
+            <returns>
+            An <see cref="T:System.Collections.Generic.ICollection`1"></see> containing the values in the object that implements <see cref="T:System.Collections.Generic.IDictionary`2"></see>.
+            </returns>
+            
+        </member>
+        <member name="P:MMDataStructures.Dictionary`2.Count">
+            <summary>
+            Gets the number of elements contained in the <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </summary>
+            
+            <returns>
+            The number of elements contained in the <see cref="T:System.Collections.Generic.ICollection`1"></see>.
+            </returns>
+            
+        </member>
+        <member name="P:MMDataStructures.Dictionary`2.IsReadOnly">
+            <summary>
+            Gets a value indicating whether the <see cref="T:System.Collections.Generic.ICollection`1"></see> is read-only.
+            </summary>
+            
+            <returns>
+            true if the <see cref="T:System.Collections.Generic.ICollection`1"></see> is read-only; otherwise, false.
+            </returns>
+            
+        </member>
+        <member name="T:MMDataStructures.Array`1">
+            <summary>
+            Array represent an array and stores it on disk using Memory Mapped Files
+            instead of keeping the data in process memory. Memory Mapped Files will use the OS'
+            functions for optimal caching of the data, yielding a reasonable tradeoff between
+            speed and large amounts of data.
+            
+            .Net applications will typically give random out-of-memory exceptions when approaching
+            ~800mb data structures, specially if you need to keep several copies of an instance at
+            a time. The problem is less frequent on 64bit systems than on 32bit, but still there.
+            
+            This class will only accept value types and structs (which is a value type) since those
+            objects always will take up the same amount of space. But make sure the struct contains
+            only value types, or defined length strings.
+            
+            For structs we are using this conversion:
+            http://stackoverflow.com/questions/3278827/how-to-convert-a-structure-to-a-byte-array-in-c
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.Array`1.#ctor(System.Int64,System.String,System.Boolean,MMDataStructures.PersistenceMode)">
+            <summary>
+            Create a new memory mapped array
+            </summary>
+            <param name="capacity">The number of elements to allocate in the array</param>
+            <param name="fileName">File name of the MMF (relative to the DataPath)</param>
+            <param name="autoGrow">Decide if the array can expand or not</param>
+            <param name="persistenceMode"></param>
+        </member>
+        <member name="P:MMDataStructures.Array`1.PersistenceMode">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="P:MMDataStructures.Array`1.AutoGrow">
+            <summary>
+            Allow array to automatically grow if you access an indexer larger than the starting size
+            </summary>
+        </member>
+        <member name="P:MMDataStructures.Array`1.Length">
+            <summary>
+            Return the number of elements in the array
+            </summary>
+        </member>
+        <member name="P:MMDataStructures.Array`1.Capacity">
+            <summary>
+            
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.FileManager.#ctor(System.String,System.Int64,MMDataStructures.PersistenceMode)">
+            <summary>
+            
+            </summary>
+            <param name="filePath"></param>
+            <param name="maxCapacity">Maximum capacity of MMF</param>
+            <param name="persistenceMode"></param>
+        </member>
+        <member name="M:MMDataStructures.FileManager.HasCapacity(System.Int64,System.Int64)">
+            <summary>
+            True if MF has enough backing capacity to wrtite writeLength bytes from position
+            </summary>
+        </member>
+        <member name="M:MMDataStructures.FileManager.EnsureCapacity(System.Int64)">
+            <summary>
+            Grow the array to support more data
+            </summary>
+            <param name="requiredMinCapacity">The size to grow from</param>
+        </member>
+        <member name="P:MMDataStructures.FileManager.Capacity">
+            <summary>
+            Size of Mmf in bytes
+            </summary>
+        </member>
+    </members>
+</doc>
