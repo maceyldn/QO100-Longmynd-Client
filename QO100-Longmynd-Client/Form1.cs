@@ -1,33 +1,45 @@
-﻿using AXVLC;
+﻿using LibVLCSharp.Shared;
+using log4net;
+using log4net.Appender;
+using log4net.Config;
+using log4net.Repository;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
+using System.Diagnostics;
 using System.Drawing;
-using System.Linq;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
+using System.Reflection;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml;
 using System.Xml.Linq;
+using TSParser.Mpeg;
+using TSParser.Mpeg.Descriptors;
+using TSParser.Mpeg.Psi;
+using TSParser.Util;
 using WebSocketSharp;
-
 
 namespace QO100LongmyndClient
 {
     public partial class Form1 : Form
     {
-        private const int port = 5001;
-        public UdpClient client;
+        private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        
+        private const int port = 5011;
+        public UdpClient udpmetadataclient;
+        public UdpClient udptsclient;
         public String state;
         public bool dvbs2 = false;
         Dictionary<int, String> DVBSLookup = new Dictionary<int, string>();
         Dictionary<int, String> DVBS2Lookup = new Dictionary<int, string>();
         bool playing = false;
         Thread UdpThread;
+        Thread UdpTSThread;
+        TransportStream ts;
 
         private static readonly Object list_lock = new Object();
         private WebSocket ws;       //websocket client
@@ -58,23 +70,96 @@ namespace QO100LongmyndClient
         XElement bandplan;
         System.Timers.Timer timeout = new System.Timers.Timer();        //detect websocket timeout
         System.Timers.Timer udptimeout = new System.Timers.Timer();
-      
+        System.Timers.Timer udptstimeout = new System.Timers.Timer();
+        System.Timers.Timer bitratetimer = new System.Timers.Timer();
+        
         double start_freq = 10490.5f;
 
         DateTime lastseen;
+        bool demodlocked = false;
+        bool streamactive = false;
+        LibVLC _libVLC;
+        MediaPlayer _mediaPlayer;
+        
+        bool recording = false;
+        BinaryWriter saveTSWriter;
 
         public Form1()
         {
             InitializeComponent();
 
-            //this.FormClosing += Form1_FormClosing;
-            //Load += new EventHandler(Form1_Load);
+            ILoggerRepository repository = log4net.LogManager.GetRepository(Assembly.GetCallingAssembly());
+            var fileInfo = new FileInfo(@"log4net.config");
+
+            XmlConfigurator.Configure(repository, fileInfo);
         }
 
-    private void Form1_Load(object sender, EventArgs e)
+        private void MediaPlayerOnLog(object sender, LogEventArgs e)
         {
+            logger.Info(e.Message);
+            //tbLog.Invoke((MethodInvoker)delegate { tbLog.AppendText(e.Message+Environment.NewLine); });
+        }
+
+        int videopid;
+        int audiopid;
+
+        private bool UdpMetaDataThreadRunning = true;
+        private bool UdpTSThreadRunning = true;
+        private string saveTSFilename;
+
+        private void NewPMTEvent(object sender, TSParser.Mpeg.Psi.PMTEventArgs e)
+        {
+            //Logger.Info("PMT INFO");
+            foreach (PMTsection p in e._sections)
+            {
+                //Logger.Info(p);
+                foreach (PMTsection.Component c in p.GetComponentList())
+                {
+                    //Logger.Info(" - " + c);
+                    foreach (Descriptor d in c.GetComponentDescriptorList())
+                    {
+                        //Logger.Info(" - - " + d);
+                    }
+
+                    switch (c.GetStreamtype())
+                    {
+                        case 36:
+                            lblcodecvalue.Invoke((MethodInvoker)delegate { lblcodecvalue.Text = c.GetStreamTypeString(); });
+                            videopid = c.GetElementaryPID();
+                            break;
+
+                        case 27:
+                            lblcodecvalue.Invoke((MethodInvoker)delegate { lblcodecvalue.Text = c.GetStreamTypeString(); });
+                            videopid = c.GetElementaryPID();
+                            break;
+                        case 15:
+                            lblaudiocodec.Invoke((MethodInvoker)delegate { lblaudiocodec.Text = c.GetStreamTypeString(); });
+                            audiopid = c.GetElementaryPID();
+                            break;
+                        case 3:
+                            lblaudiocodec.Invoke((MethodInvoker)delegate { lblaudiocodec.Text = c.GetStreamTypeString(); });
+                            audiopid = c.GetElementaryPID();
+                            break;
+                        default:
+                          //  Logger.Info(c);
+                            break;
+                    }
+                    
+                }
+
+            }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            Core.Initialize();
+            _libVLC = new LibVLC("--verbose=2");
+            _mediaPlayer = new MediaPlayer(_libVLC);
+            _libVLC.Log += MediaPlayerOnLog;
+            videoView1.MediaPlayer = _mediaPlayer;
+
             ///Build Mod Code Dict-
-          
+
             DVBSLookup.Add(0, "QPSK 1/2");
             DVBSLookup.Add(1, "QPSK 2/3");
             DVBSLookup.Add(2, "QPSK 3/4");
@@ -113,56 +198,181 @@ namespace QO100LongmyndClient
             DVBS2Lookup.Add(27, "32APSK 8/9");
             DVBS2Lookup.Add(28, "32APSK 9/10");
 
-
-            udptimeout.Interval = 500;
-            udptimeout.Elapsed += OnTimedEvent;
-            udptimeout.AutoReset = true;
-            udptimeout.Enabled = true;
-
-
-            UdpThread = new Thread(ReceiveData);
-            UdpThread.Start();
             StartupWSS();
 
-        }
+            bitratetimer.Interval = 500;
+            bitratetimer.Elapsed += OnBitrateTimer;
+            bitratetimer.AutoReset = true;
+            bitratetimer.Enabled = true;
 
-        private void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
+            udptimeout.Interval = 500;
+            udptimeout.Elapsed += Udptimeout_Elapsed;
+            udptimeout.Enabled = false;
+            udptimeout.AutoReset = false;
+
+            udptstimeout.Interval = 10;
+            udptstimeout.Elapsed += Udptstimeout_Elapsed;
+            udptstimeout.Enabled = false;
+            udptstimeout.AutoReset = false;
+
+            UdpThread = new Thread(ReceiveMetaData);
+            UdpThread.IsBackground = true;
+            UdpThread.Start();
+
+            ResetTS();
+            
+            UdpTSThread = new Thread(ReceiveTSData);
+            UdpTSThread.Name = "TSProcessing";
+            UdpTSThread.IsBackground = true;
+            UdpTSThread.Start();
+}
+
+            private void Udptstimeout_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
-            DateTime now = DateTime.UtcNow;
-            TimeSpan diff = now.Subtract(lastseen);
-
-            if (diff.TotalSeconds > 5)
+            if (demodlocked)
             {
-                toolStripStatusLabel1.Text = "Lost UDP Data";
-                ledBulb1.Color = Color.Red;
-                StopVideo();
+                if (ledBulb2.Color == Color.Green)
+                {
+                    ledBulb2.Color = Color.Red;
+                    ResetAll();
+                }
             }
         }
 
-        public void ReceiveData()
+        private void Udptimeout_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
-            client = new UdpClient();
+            if (!demodlocked)
+            {
+                ResetAll();
+            }
+        }
 
+        private void OnBitrateTimer(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            if (ts.GetPids() != null)
+            {
+               if (demodlocked)
+                {
+                    try
+                    {
+                        if (ts.GetPids().GetValue(8191) != null) lblPercentNullvalue.Invoke((MethodInvoker)delegate { lblPercentNullvalue.Text = Utils.GetBWFriendly(ts.GetPids()[8191].GetBitRate()); });
+                        if (ts.GetPids().GetValue(videopid) != null) { String vb = Utils.GetBWFriendly(ts.GetPids()[videopid].GetBitRate()); lblvbitratevalue.Invoke((MethodInvoker)delegate { lblvbitratevalue.Text = vb; }); }
+                        if (ts.GetPids().GetValue(audiopid) != null) { String ab = Utils.GetBWFriendly(ts.GetPids()[audiopid].GetBitRate()); lblabitratevalue.Invoke((MethodInvoker)delegate { lblabitratevalue.Text = ab; }); }
+
+                        ts.CalculateBitRate();
+                        lblTotalBitratevalue.Invoke((MethodInvoker)delegate { lblTotalBitratevalue.Text = Utils.GetBWFriendly(ts.GetBitRate()); });
+                    }
+                    catch (Exception exp)
+                    {
+                        logger.Info(exp.Message);
+                    }
+                }
+           }
+        }
+
+       
+        private void ResetGUI()
+        {
+          
+                ledBulb1.Invoke((MethodInvoker)delegate { ledBulb1.Color = Color.Red; });
+                ledBulb2.Invoke((MethodInvoker)delegate { ledBulb2.Color = Color.Red; });
+                lblServiceNamevalue.Invoke((MethodInvoker)delegate { lblServiceNamevalue.Text = ""; });
+                lblServiceProviderValue.Invoke((MethodInvoker)delegate { lblServiceProviderValue.Text = ""; });
+                lblBERvalue.Invoke((MethodInvoker)delegate { lblBERvalue.Text = ""; });
+                lblDVBtypevalue.Invoke((MethodInvoker)delegate { lblDVBtypevalue.Text = ""; });
+                lblMERvalue.Invoke((MethodInvoker)delegate { lblMERvalue.Text = ""; });
+                lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = ""; });
+                lblPercentNullvalue.Invoke((MethodInvoker)delegate { lblPercentNullvalue.Text = ""; });
+                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = ""; });
+                lblcodecvalue.Invoke((MethodInvoker)delegate { lblcodecvalue.Text = ""; });
+                lblaudiocodec.Invoke((MethodInvoker)delegate { lblaudiocodec.Text = ""; });
+                lblTotalBitratevalue.Invoke((MethodInvoker)delegate { lblTotalBitratevalue.Text = ""; });
+                lblvbitratevalue.Invoke((MethodInvoker)delegate { lblvbitratevalue.Text = ""; });
+                lblabitratevalue.Invoke((MethodInvoker)delegate { lblabitratevalue.Text = ""; });
+           
+        }
+
+        static void SendUdp(string dstIp, int dstPort, byte[] data)
+        {
+            using (UdpClient c = new UdpClient())
+                c.Send(data, data.Length, dstIp, dstPort);
+        }
+
+        public void ReceiveTSData()
+        {
+                                   
+            udptsclient = new UdpClient();
+            udptsclient.ExclusiveAddressUse = false;
+
+            IPEndPoint localEp = new IPEndPoint(IPAddress.Any, 5010);
+            udptsclient.Client.Bind(localEp);
+            udptsclient.JoinMulticastGroup(IPAddress.Parse("239.100.100.50"));
+            
+            while (UdpTSThreadRunning)
+            {
+                if (demodlocked)
+                {
+                    
+                    byte[] data = udptsclient.Receive(ref localEp);
+                    if (ts != null)
+                    {
+                        SendUdp("127.0.0.1", 5500, data);
+                        try
+                        {
+                            ts.EnqueuePacket(data, data.Length);
+                        }catch (Exception e)
+                        {
+                            logger.Info(e.Message);
+                        }
+                    }
+
+                    if (recording)
+                    {
+                        if (saveTSWriter == null)
+                        {
+                            saveTSWriter = new BinaryWriter(File.Open(saveTSFilename, FileMode.Create));
+                        }
+
+                        saveTSWriter.Write(data, 0, data.Length);
+                    }
+
+                    if (ledBulb2.Color == Color.Red)
+                    {
+                        ledBulb2.Invoke((MethodInvoker)delegate { ledBulb2.Color = Color.Green; });
+                    }
+                    //udptstimeout.Stop();
+                    //
+                    //udptstimeout.Start();
+                }
+            }
+        }
+
+            public void ReceiveMetaData()
+            {
+            udpmetadataclient = new UdpClient();
+
+            //IPEndPoint localEp = new IPEndPoint(IPAddress.Parse("192.168.104.183"), port);
             IPEndPoint localEp = new IPEndPoint(IPAddress.Any, port);
-            client.Client.Bind(localEp);
-
-            //client.JoinMulticastGroup(IPAddress.Parse(MULTICAST_ADDR));
-            while (true)
+            udpmetadataclient.Client.Bind(localEp);
+            udpmetadataclient.JoinMulticastGroup(IPAddress.Parse("239.100.100.50"));
+            
+            while (UdpMetaDataThreadRunning)
             {
                 try
                 {
-                    byte[] data = client.Receive(ref localEp);
+                    byte[] data = udpmetadataclient.Receive(ref localEp);
                     string text = Encoding.UTF8.GetString(data).TrimStart('$');
                     string[] message = text.Split(',');
                     //Chop "@" from start.
                     Process(message);
 
-
+                    udptimeout.Stop();
+                    udptimeout.Start();
                     //Console.WriteLine(text);
                 }
                 catch (Exception err)
                 {
-                    //Console.WriteLine(err.ToString());
+                    Console.WriteLine(err.ToString());
                 }
             }
         }
@@ -171,85 +381,117 @@ namespace QO100LongmyndClient
 
         private void Process(string[] message)
         {
+           // locked = false;
             lastseen = DateTime.UtcNow;
 
             //       LongMyndStatus t;
             switch (message[0])
             {
                 case "1":
-                    Console.Write(message[1]);
-                    switch (message[1].TrimEnd('\n'))
-                    {
+                    //Console.Write(message[1]);
+                    //Console.Write(message[1]);
+                        switch (message[1].TrimEnd('\n'))
+                        {
                         case "0":
-                            state = "Initialising...";
-                            ledBulb1.Color = Color.Red;
-                            StopVideo();
+                                state = "Initialising...";
+                                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
+                                demodlocked = false;
+                            streamactive = false;
+                          ResetGUI();
                             break;
                         case "1":
-                            state = "Searching...";
-                            ledBulb1.Color = Color.Red;
-                            StopVideo();
+                                state = "Searching...";
+                                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
+                                demodlocked = false;
+                            streamactive = false;
+                            //ResetGUI();
                             break;
                         case "2":
-                            state = "Found Headers...";
-                            ledBulb1.Color = Color.Red;
-                            StopVideo();
+                                state = "Found Headers...";
+                                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
+                                demodlocked = false;
+                            streamactive = false;
                             break;
                         case "3":
-                            state = "Locked DVB-S...";
-                            dvbs2 = false;
-                            ledBulb1.Color = Color.Green;
-                            ShowVideo();
+                                state = "Locked DVB-S...";
+                                dvbs2 = false;
+                                ledBulb1.Color = Color.Green;
+                                ShowVideo();
+                                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
+                                demodlocked = true;
+                            if (!streamactive)
+                            {
+                                ResetAll();
+                                streamactive = true;
+                              }
+
                             break;
-                        case "4":
-                            state = "Locked DVB-S2...";
-                            ledBulb1.Color = Color.Green;
-                            ShowVideo();
-                            dvbs2 = true;
+                        case "4":                    
+                                state = "Locked DVB-S2...";
+                                ledBulb1.Color = Color.Green;
+                                ShowVideo();
+                                dvbs2 = true;
+                                lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
+                                demodlocked = true;
+                            if (!streamactive)
+                            {
+                                ResetAll();
+                                streamactive = true;
+                              }
+
                             break;
                         default:
                             state = "Unknown";
                             ledBulb1.Color = Color.Red;
                             break;
                     }
-                    lblStatusvalue.Invoke((MethodInvoker)delegate { lblStatusvalue.Text = state; });
 
-                    if (dvbs2)
+                    if (demodlocked)
                     {
-                        lblDVBtypevalue.Invoke((MethodInvoker)delegate { lblDVBtypevalue.Text = "DVB-S2"; });
-                    } else
-                    {
-                        lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = "DVB-S"; });
+                        if (dvbs2)
+                        {
+                            lblDVBtypevalue.Invoke((MethodInvoker)delegate { lblDVBtypevalue.Text = "DVB-S2"; });
+                        }
+                        else
+                        {
+                            lblDVBtypevalue.Invoke((MethodInvoker)delegate { lblDVBtypevalue.Text = "DVB-S"; });
+                        }
                     }
                     break;
                 case "11":
-                    lblBERvalue.Invoke((MethodInvoker)delegate { lblBERvalue.Text = message[1]; });
+
+                     if (demodlocked) lblBERvalue.Invoke((MethodInvoker)delegate { lblBERvalue.Text = message[1]; });
                     break;
                 case "12":
-                    lblMERvalue.Invoke((MethodInvoker)delegate { lblMERvalue.Text = message[1]; });
+                     if (demodlocked) lblMERvalue.Invoke((MethodInvoker)delegate { lblMERvalue.Text = message[1]; });
                     break;
                 case "13":
-                    lblServiceProviderValue.Invoke((MethodInvoker)delegate { lblServiceProviderValue.Text = message[1]; });
+                    //if (!guitimeout.Enabled) lblServiceProviderValue.Invoke((MethodInvoker)delegate { lblServiceProviderValue.Text = message[1]; });
                     break;
                 case "14":
-                    lblServiceNamevalue.Invoke((MethodInvoker)delegate { lblServiceNamevalue.Text = message[1]; });
+                    //if (!guitimeout.Enabled) lblServiceNamevalue.Invoke((MethodInvoker)delegate { lblServiceNamevalue.Text = message[1]; });
                     break;
                 case "15":
-                    lblPercentNullvalue.Invoke((MethodInvoker)delegate { lblPercentNullvalue.Text = message[1]; });
+                  
                     break;
                 case "18":
-                    if (!dvbs2)
-                    {
-                        String value;
-                        DVBSLookup.TryGetValue(int.Parse(message[1]), out value);
-                        lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = value; });
-                    } else
-                    {
-                        String value;
-                        DVBS2Lookup.TryGetValue(int.Parse(message[1]), out value);
-                        lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = value; });
-                    }
 
+                    if (demodlocked)
+                    {
+                        //value
+                        if (!dvbs2)
+                        {
+                            String value;
+                            DVBSLookup.TryGetValue(int.Parse(message[1]), out value);
+                            lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = value; });
+                        }
+                        else
+                        {
+                            String value;
+                            DVBS2Lookup.TryGetValue(int.Parse(message[1]), out value);
+                            lblMODTypevalue.Invoke((MethodInvoker)delegate { lblMODTypevalue.Text = value; });
+                        }
+                    }
                     break;
 
                 default:
@@ -257,16 +499,21 @@ namespace QO100LongmyndClient
             }
         }
 
+        private void ResetAll()
+        {
+            StopVideo();
+            ResetGUI();
+            ResetTS();
+            //ShowVideo();
+            udptimeout.Enabled = true;
+        }
+
         private void ShowVideo()
         {
+            
             if (!playing)
             {
-               
-                axVLCPlugin21.playlist.items.clear();
-                axVLCPlugin21.playlist.add("udp://@:5000");
-                axVLCPlugin21.playlist.play();
-                axVLCPlugin21.video.scale = 0.45f;
-                //axVLCPlugin21.video.scale = 1;
+                _mediaPlayer.Play(new Media(_libVLC, "udp://@:5500", FromType.FromLocation));
                 playing = true;
             }
         }
@@ -275,11 +522,27 @@ namespace QO100LongmyndClient
         {
             if (!connected)
             {
+                
                 ws = new WebSocket("wss://eshail.batc.org.uk/wb/fft_m0dtslivetune");
                 ws.OnMessage += (ss, ee) => NewData(ee.RawData);
-                ws.OnOpen += (ss, ee) => { connected = true; toolStripStatusLabel1.Text = "Disconnect"; };
-                ws.OnClose += (ss, ee) => { connected = false; toolStripStatusLabel1.Text = "Connect"; };
-                ws.Connect();
+                ws.OnOpen += (ss, ee) => { 
+                    connected = true; 
+                    //toolStripStatusLabel1.Invoke((MethodInvoker)delegate { toolStripStatusLabel1.Text = "Disconnect"; });  
+                };
+                ws.OnClose += (ss, ee) => { 
+                    connected = false; 
+                    //toolStripStatusLabel1.Invoke((MethodInvoker)delegate { toolStripStatusLabel1.Text = "Connect"; }); 
+                };
+
+                try
+                {
+                    ws.Connect();
+                } catch (Exception e)
+                {
+                    //Logger.info("Failed to connect, trying again
+                    logger.Info(e.Message);
+                    ws.Connect();
+                }
                 timeout.Enabled = true;
             }
             else
@@ -409,17 +672,19 @@ namespace QO100LongmyndClient
                 }
             }
 
-            pbSpectrum.Image = bmp;       //pass bitmap to gui picture frame
+            try
+            {
+                pbSpectrum.Image = bmp;       //pass bitmap to gui picture frame
+            } catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
         }
 
         private void spectrum_Click(object sender, EventArgs e)
         {
-
-
-            //if (RxList.Items.Count > 0)       //check we have a receiver setup before sending anything!
-            //{
-                MouseEventArgs me = (MouseEventArgs)e;
-                Point pos = me.Location;
+               MouseEventArgs me = (MouseEventArgs)e;
+               Point pos = me.Location;
 
                 lock (list_lock)
                 {
@@ -427,102 +692,66 @@ namespace QO100LongmyndClient
                     {
                         if (pos.X > sig[4] & pos.X < sig[5])
                         {
-
-                            int rx = 1;
-
-                        //        switch (RxList.Items.Count)
-                        switch (1)
-                        {
-                                case 1:
-                                    //use full v scale for selecting which Rx
-                                    break;
-                                case 2:
-                                    //use halves of v scale for selecting which Rx
-                                    if (pos.Y > 127)
-                                    {
-                                        //Rx2
-                                        rx = 2;
-                                    }
-                                    else
-                                    {
-                                        //Rx1
-                                        rx = 1;
-                                    }
-                                    break;
-
-                                case 3:
-                                    //use thirds of v scale for selecting which Rx
-                                    if (pos.Y > 170)
-                                    {
-                                        //Rx3
-                                        rx = 3;
-                                    }
-                                    else
-                                    {
-                                        if (pos.Y > 85)
-                                        {
-                                            //Rx2
-                                            rx = 2;
-                                        }
-                                        else
-                                        {
-                                            //Rx1
-                                            rx = 1;
-                                        }
-
-                                    }
-                                    break;
-
-                                case 4:
-                                    //use quarters of v scale for selecting which Rx
-                                    if (pos.Y > 192)
-                                    {
-                                        //Rx4
-                                        rx = 4;
-                                    }
-                                    else
-                                    {
-                                        if (pos.Y > 128)
-                                        {
-                                            //Rx3
-                                            rx = 3;
-                                        }
-                                        else
-                                        {
-                                            if (pos.Y > 64)
-                                            {
-                                                //Rx2
-                                                rx = 2;
-                                            }
-                                            else
-                                            {
-                                                //Rx1
-                                                rx = 1;
-                                            }
-                                        }
-
-                                    }
-                                    break;
-
-                            }
-                            rx_blocks[rx - 1, 0] = Convert.ToInt16(sig[0]);
-                            rx_blocks[rx - 1, 1] = Convert.ToInt16(sig[5] - sig[4]);
-                            rx_blocks[rx - 1, 2] = rx;
+                            rx_blocks[0, 0] = Convert.ToInt16(sig[0]);
+                            rx_blocks[0, 1] = Convert.ToInt16(sig[5] - sig[4]);
+                            rx_blocks[0, 2] = 1;
                             int freq = Convert.ToInt32((sig[1]) * 1000);
                             int sr = Convert.ToInt32((sig[2] * 1000.0));
-                  //          byte[] outStream = Encoding.ASCII.GetBytes("[GlobalMsg],Freq=" + freq.ToString() + ",Offset=" + RxList.Items[rx - 1].SubItems[2].Text + ",Doppler=0,Srate=" + sr.ToString() + ",WideScan=0,LowSR=0,DVBmode=" + RxList.Items[rx - 1].SubItems[6].Text + ",FPlug=" + RxList.Items[rx - 1].SubItems[3].Text + ",Voltage=" + RxList.Items[rx - 1].SubItems[4].Text + ",22kHz=" + RxList.Items[rx - 1].SubItems[5].Text + "\n");
-                //            string test = "[GlobalMsg],Freq=" + freq.ToString() + ",Offset=" + RxList.Items[rx - 1].SubItems[2].Text + ",Doppler=0,Srate=" + sr.ToString() + ",WideScan=0,LowSR=0,DVBmode=" + RxList.Items[rx - 1].SubItems[6].Text + ",FPlug=" + RxList.Items[rx - 1].SubItems[3].Text + ",Voltage=" + RxList.Items[rx - 1].SubItems[4].Text + ",22kHz=" + RxList.Items[rx - 1].SubItems[5].Text + "\n";
-                            //   string test = "[GlobalMsg],Freq=" + freq.ToString() + ",Offset=" + RxList.Items[rx - 1].SubItems[2].Text + ",Doppler=0,Srate=" + sr.ToString() + ",WideScan=0,LowSR=0,DVBmode=" + RxList.Items[rx - 1].SubItems[6].Text + ",FPlug=" + RxList.Items[rx - 1].SubItems[3].Text + ",Voltage=" + RxList.Items[rx - 1].SubItems[4].Text + ",22kHz=" + RxList.Items[rx - 1].SubItems[5].Text;
-                //            Console.WriteLine(test);
-              //              IPAddress ip = System.Net.IPAddress.Parse(RxList.Items[rx - 1].SubItems[0].Text);
-              //              int port = Convert.ToInt16(RxList.Items[rx - 1].SubItems[1].Text);
-              //              sending_end_point = new System.Net.IPEndPoint(ip, port);
-              //              MT_Client.Client.SendTo(outStream, sending_end_point);
 
+                            byte[] outStream = Encoding.ASCII.GetBytes("[GlobalMsg],Freq="+freq.ToString()+",Offset=9750000,Doppler=0,Srate="+sr.ToString()+",WideScan=0,LowSR=0,DVBmode=Auto,FPlug=A,Voltage=0,22kHz=Off\n");
+                            IPAddress ip = System.Net.IPAddress.Parse("192.168.105.102");
+                            int port = Convert.ToInt16("6789");
+                            sending_end_point = new System.Net.IPEndPoint(ip, port);
+                            MT_Client.Client.SendTo(outStream, sending_end_point);
+
+                        udptimeout.Enabled = false;
+                            ResetAll();
                         }
                     }
                 }
-            //}
+        }
+
+        private void ResetTS()
+        {
+            bitratetimer.Enabled = false;
+            bitratetimer.Stop();
+            Thread.Sleep(100);
+            ts = null;
+            ts = new TransportStream();
+            ts.GetPsi().GetPmts().NewPMTEvent += NewPMTEvent;
+            ts.GetPsi().GetSdt().NewSDTEvent += NewSDTEvent;
+            ts.StartProcessing();
+            bitratetimer.Enabled = true;
+            bitratetimer.AutoReset = true;
+            udptstimeout.Enabled = false;
+            udptstimeout.Stop();
+            SaveRec();
+        }
+
+        private void NewSDTEvent(object sender, SDTEventArgs e)
+        {
+            //Logger.Info("SDT INFO");
+
+            foreach (SDTsection s in e._sections)
+            {
+                //Logger.Info(s);
+                SDTsection.Service svc = s.GetServiceList()[0];
+
+                //Logger.Info(svc);
+                foreach (Descriptor d in svc.GetDescriptorList())
+                {
+                    //Logger.Info(" - " + d);
+                    if (d is ServiceDescriptor)
+                    {
+                        ServiceDescriptor desc = (ServiceDescriptor) d;
+
+                        lblServiceNamevalue.Invoke((MethodInvoker)delegate { lblServiceNamevalue.Text = desc.GetServiceName().ToString(); });
+                        lblServiceProviderValue.Invoke((MethodInvoker)delegate { lblServiceProviderValue.Text = desc.GetServiceProviderName().ToString(); });
+                    }
+                }
+                
+                
+            }
         }
 
         public float align_symbolrate(float width)
@@ -608,7 +837,6 @@ namespace QO100LongmyndClient
                         {
                             in_signal = true;
                             start_signal = i;
-
                         }
                     }
                     else /* in_signal == true */
@@ -621,15 +849,12 @@ namespace QO100LongmyndClient
 
                             acc = 0;
                             acc_i = 0;
-                            // Console.WriteLine(Convert.ToInt16(start_signal + (0.3 * (end_signal - start_signal))));
-                            //  Console.WriteLine( start_signal + (0.7 * (end_signal - start_signal)));
-
+                          
                             for (j = Convert.ToInt16(start_signal + (0.3 * (end_signal - start_signal))) | 0; j < start_signal + (0.7 * (end_signal - start_signal)); j++)
                             {
                                 acc = acc + fft_data[j];
                                 acc_i = acc_i + 1;
                             }
-
 
                             strength_signal = acc / acc_i;
 
@@ -645,9 +870,7 @@ namespace QO100LongmyndClient
                             {
                                 end_signal = j;
                             }
-                            //  Console.WriteLine("Start:" + start_signal.ToString());
-                            //  Console.WriteLine("End:" + end_signal.ToString());
-                            // Console.WriteLine("Strength:" + strength_signal.ToString());
+                          
                             mid_signal = Convert.ToSingle(start_signal + ((end_signal - start_signal) / 2.0));
 
                             signal_bw = align_symbolrate(Convert.ToSingle((end_signal - start_signal) * (9.0 / fft_data.Length)));
@@ -659,8 +882,6 @@ namespace QO100LongmyndClient
                                 signals.Add(new List<double> { mid_signal, signal_freq, signal_bw, strength_signal / 255, start_signal, end_signal });
 
                             }
-
-
                         }
                     }
                 }
@@ -673,16 +894,30 @@ namespace QO100LongmyndClient
         {
             if (playing)
             {
-                axVLCPlugin21.playlist.items.clear();
-                axVLCPlugin21.playlist.stop();
+               _mediaPlayer.Stop();
                 playing = false;
             }
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            UdpThread.Abort();
+            log4net.Repository.Hierarchy.Hierarchy rootRepo = (log4net.LogManager.GetRepository(Assembly.GetCallingAssembly()) as log4net.Repository.Hierarchy.Hierarchy);
+            rootRepo.Root.Level = rootRepo.LevelMap["OFF"];
+
+            //locked = true;
+            StopVideo();
+
             ws.Close();
+            udptimeout.Stop();
+            udptstimeout.Stop();
+
+            UdpMetaDataThreadRunning = false;
+            UdpTSThreadRunning = false;
+            bitratetimer.Stop();
+            ts.StopProcessing();
+            ts = null;
+           
+            
         }
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)
@@ -695,9 +930,52 @@ namespace QO100LongmyndClient
             Application.Exit();
         }
 
-        private void axVLCPlugin21_MediaPlayerPlaying(object sender, EventArgs e)
+    
+
+        private void label2_Click(object sender, EventArgs e)
         {
-            lblcodecvalue.Text = axVLCPlugin21.mediaDescription.ToString();
+
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (!recording)
+            {
+                SaveFileDialog saveFileDialog1 = new SaveFileDialog();
+                //saveFileDialog1.InitialDirectory = @"C:\";
+                saveFileDialog1.CreatePrompt = true;
+                saveFileDialog1.OverwritePrompt = true;
+                saveFileDialog1.Title = "Save TS File";
+                saveFileDialog1.CheckPathExists = true;
+                saveFileDialog1.DefaultExt = "ts";
+                saveFileDialog1.Filter = "TS files (*.ts)|*.ts";
+                saveFileDialog1.FileName = lblServiceNamevalue.Text + "-" + DateTime.Now.ToString("dd_MM_yyyy_hh_mm_ss") + ".ts";
+                //saveFileDialog1.FilterIndex = 2;
+                //saveFileDialog1.RestoreDirectory = true;
+                saveFileDialog1.ShowHelp = true;
+                if (saveFileDialog1.ShowDialog() == DialogResult.OK)
+                {
+                    btnRecordTS.Text = "Recording";
+                   // btnRecordTS.BackColor = Color.Red;
+                    saveTSFilename = saveFileDialog1.FileName;
+                }
+                recording = true;
+            } else
+            {
+                SaveRec();
+            }
+        }
+
+        private void SaveRec()
+        {
+            recording = false;
+            if (saveTSWriter != null)
+            {
+                saveTSWriter.Close();
+            }
+            saveTSWriter = null;
+            btnRecordTS.Text = "Start Rec";
+
         }
     }
     // receive thread
